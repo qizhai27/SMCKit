@@ -7,9 +7,11 @@ XCODE_BUILD  = xcodebuild -target ${XCODE_TARGET}
 .PHONY: install machine release debug build uninstall jazzy ronn clean distclean
 
 install: machine release
+	mkdir -p ${INSTALL_DIR}
+	mkdir -p ${MANPAGE_DIR}
 	cp bin/smckit ${INSTALL_DIR}
 	cp docs/smckit.1 ${MANPAGE_DIR}
-	du -sh ${INSTALL_DIR}/smckit
+	ls -lh ${INSTALL_DIR}/smckit
 machine:
 	@sysctl hw.model;                                             \
 	 sw_vers;                                                     \
@@ -19,6 +21,7 @@ machine:
 	 swiftc -v
 release: build
 	strip bin/smckit
+	codesign -f -s - bin/smckit
 debug: XCODE_CONFIG=Debug
 debug: build
 build: SMCKitTool/lib/CommandLine/README.md

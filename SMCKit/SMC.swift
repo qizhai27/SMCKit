@@ -183,7 +183,7 @@ public struct SMCParamStruct {
 
     public struct SMCKeyInfoData {
         /// How many bytes written to SMCParamStruct.bytes
-        var dataSize: IOByteCount = 0
+        var dataSize: UInt32 = 0
 
         /// Type of data written to SMCParamStruct.bytes. This lets us know how
         /// to interpret it (translate it to human readable)
@@ -338,7 +338,7 @@ public struct SMCKit {
     /// Open connection to the SMC driver. This must be done first before any
     /// other calls
     public static func open() throws {
-        let service = IOServiceGetMatchingService(kIOMasterPortDefault,
+        let service = IOServiceGetMatchingService(kIOMainPortDefault,
                                                   IOServiceMatching("AppleSMC"))
 
         if service == 0 { throw SMCError.driverNotFound }
@@ -388,7 +388,7 @@ public struct SMCKit {
         var inputStruct = SMCParamStruct()
 
         inputStruct.key = key.code
-        inputStruct.keyInfo.dataSize = IOByteCount(key.info.size)
+        inputStruct.keyInfo.dataSize = UInt32(key.info.size)
         inputStruct.data8 = SMCParamStruct.Selector.kSMCReadKey.rawValue
 
         let outputStruct = try callDriver(&inputStruct)
@@ -402,7 +402,7 @@ public struct SMCKit {
 
         inputStruct.key = key.code
         inputStruct.bytes = data
-        inputStruct.keyInfo.dataSize = IOByteCount(key.info.size)
+        inputStruct.keyInfo.dataSize = UInt32(key.info.size)
         inputStruct.data8 = SMCParamStruct.Selector.kSMCWriteKey.rawValue
 
         _ = try callDriver(&inputStruct)
