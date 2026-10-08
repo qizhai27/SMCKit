@@ -63,7 +63,7 @@ let CLIDisplayKeysOption = BoolOption(shortFlag: "d", longFlag: "display-keys",
 let CLIFanOption         = BoolOption(shortFlag: "f", longFlag: "fan",
                          helpMessage: "Show fan speeds (RPM)")
 let CLIFanAutoOption     = BoolOption(shortFlag: "a", longFlag: "fan-auto",
-        helpMessage: "Return fan control to macOS (Apple Silicon only)")
+        helpMessage: "Return fan control to macOS automatic mode (must be used with -n)")
 let CLIHelpOption        = BoolOption(shortFlag: "h", longFlag: "help",
                                       helpMessage: "Show the list of options")
 let CLICheckKeyOption    = StringOption(shortFlag: "k", longFlag: "check-key",
