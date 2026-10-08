@@ -63,7 +63,7 @@ let CLIDisplayKeysOption = BoolOption(shortFlag: "d", longFlag: "display-keys",
 let CLIFanOption         = BoolOption(shortFlag: "f", longFlag: "fan",
                          helpMessage: "Show fan speeds (RPM)")
 let CLIFanAutoOption     = BoolOption(shortFlag: "a", longFlag: "fan-auto",
-        helpMessage: "Return fan control to macOS (Apple Silicon only)")
+        helpMessage: "Return fan control to macOS automatic mode (must be used with -n)")
 let CLIHelpOption        = BoolOption(shortFlag: "h", longFlag: "help",
                                       helpMessage: "Show the list of options")
 let CLICheckKeyOption    = StringOption(shortFlag: "k", longFlag: "check-key",
@@ -76,6 +76,8 @@ let CLIPowerOption       = BoolOption(shortFlag: "p", longFlag: "power",
                helpMessage: "Show power related information")
 let CLIFanSpeedOption    = IntOption(shortFlag: "s", longFlag: "fan-speed",
                            helpMessage: "The min speed (RPM) of the fan to set")
+let CLIFanMaxOption      = BoolOption(shortFlag: "x", longFlag: "max",
+        helpMessage: "Run the fan at its maximum speed (must be used with -n)")
 let CLITemperatureOption = BoolOption(shortFlag: "t", longFlag: "temperature",
       helpMessage: "Show temperature sensors whose hardware mapping is known")
 let CLIUnknownTemperatureOption = BoolOption(shortFlag: "u",
@@ -97,6 +99,7 @@ let CLIOptions = [CLIFanAutoOption,
                   CLIMiscOption,
                   CLIFanIdOption,
                   CLIFanSpeedOption,
+                  CLIFanMaxOption,
                   CLIPowerOption,
                   CLITemperatureOption,
                   CLIUnknownTemperatureOption,
@@ -361,8 +364,24 @@ let printAllOptionsCount = wasSetOptions.filter {
 if printAllOptionsCount == wasSetOptions.count { printAll() }
 
 
-if let fanId = CLIFanIdOption.value, let fanSpeed = CLIFanSpeedOption.value {
+if CLIFanMaxOption.wasSet, CLIFanSpeedOption.wasSet {
+    print("Usage: --max (-x) cannot be used with --fan-speed (-s)")
+}
+else if let fanId = CLIFanIdOption.value, let fanSpeed = CLIFanSpeedOption.value {
     setMinFanSpeed(fanId: fanId, fanSpeed: fanSpeed)
+}
+else if CLIFanMaxOption.wasSet, let fanId = CLIFanIdOption.value {
+    do {
+        let maxSpeed = try SMCKit.fanMaxSpeed(fanId)
+        setMinFanSpeed(fanId: fanId, fanSpeed: maxSpeed)
+    } catch SMCKit.SMCError.keyNotFound {
+        print("This machine has no fan with id \(fanId)")
+    } catch {
+        print(error)
+    }
+}
+else if CLIFanMaxOption.wasSet {
+    print("Usage: Must set fan number (-n) with --max (-x)")
 }
 else if CLIFanAutoOption.wasSet, let fanId = CLIFanIdOption.value {
     setFanAuto(fanId: fanId)
