@@ -62,6 +62,8 @@ let CLIDisplayKeysOption = BoolOption(shortFlag: "d", longFlag: "display-keys",
         helpMessage: "Show SMC keys (FourCC) when printing temperature sensors")
 let CLIFanOption         = BoolOption(shortFlag: "f", longFlag: "fan",
                          helpMessage: "Show fan speeds (RPM)")
+let CLIFanAutoOption     = BoolOption(shortFlag: "a", longFlag: "fan-auto",
+        helpMessage: "Return fan control to macOS (Apple Silicon only)")
 let CLIHelpOption        = BoolOption(shortFlag: "h", longFlag: "help",
                                       helpMessage: "Show the list of options")
 let CLICheckKeyOption    = StringOption(shortFlag: "k", longFlag: "check-key",
@@ -86,7 +88,8 @@ let CLIWarnOption        = BoolOption(shortFlag: "w", longFlag: "warn",
 
 // Keep this list sorted by short flag. This will be the order that it is
 // printed when printUsage() ('--help') is called
-let CLIOptions = [CLIColorOption,
+let CLIOptions = [CLIFanAutoOption,
+                  CLIColorOption,
                   CLIDisplayKeysOption,
                   CLIFanOption,
                   CLIHelpOption,
@@ -285,17 +288,47 @@ func setMinFanSpeed(fanId: Int, fanSpeed: Int) {
 
         try SMCKit.fanSetMinSpeed(fanId, speed: fanSpeed)
 
-        print("Min fan speed set successfully")
-        print("[id \(fan.id)] \(fan.name)")
-        print("\tMin (Previous):  \(fan.minSpeed) RPM")
-        print("\tMin (Target):    \(fanSpeed) RPM")
-        print("\tCurrent:         \(currentSpeed) RPM")
+        if SMCKit.supportsManualFanMode {
+            print("Fan target speed set successfully (manual mode)")
+            print("[id \(fan.id)] \(fan.name)")
+            print("\tMin:             \(fan.minSpeed) RPM")
+            print("\tMax:             \(fan.maxSpeed) RPM")
+            print("\tTarget:          \(fanSpeed) RPM")
+            print("\tCurrent:         \(currentSpeed) RPM")
+            print("\nTo return to automatic control: smckit -a -n \(fanId)")
+        } else {
+            print("Min fan speed set successfully")
+            print("[id \(fan.id)] \(fan.name)")
+            print("\tMin (Previous):  \(fan.minSpeed) RPM")
+            print("\tMin (Target):    \(fanSpeed) RPM")
+            print("\tCurrent:         \(currentSpeed) RPM")
+        }
     } catch SMCKit.SMCError.keyNotFound {
         print("This machine has no fan with id \(fanId)")
     } catch SMCKit.SMCError.notPrivileged {
         print("This operation must be invoked as the superuser")
     } catch SMCKit.SMCError.unsafeFanSpeed {
         print("Invalid fan speed. Must be <= max fan speed")
+    } catch {
+        print(error)
+    }
+}
+
+func setFanAuto(fanId: Int) {
+    guard SMCKit.supportsManualFanMode else {
+        print("This option is only needed on Macs that support manual fan mode")
+        print("(Apple Silicon or T2-based Intel). On older Intel Macs, set the min")
+        print("speed to the lowest value instead.")
+        return
+    }
+
+    do {
+        try SMCKit.fanSetAuto(fanId)
+        print("Fan \(fanId) returned to automatic control")
+    } catch SMCKit.SMCError.keyNotFound {
+        print("This machine has no fan with id \(fanId)")
+    } catch SMCKit.SMCError.notPrivileged {
+        print("This operation must be invoked as the superuser")
     } catch {
         print(error)
     }
@@ -330,6 +363,12 @@ if printAllOptionsCount == wasSetOptions.count { printAll() }
 
 if let fanId = CLIFanIdOption.value, let fanSpeed = CLIFanSpeedOption.value {
     setMinFanSpeed(fanId: fanId, fanSpeed: fanSpeed)
+}
+else if CLIFanAutoOption.wasSet, let fanId = CLIFanIdOption.value {
+    setFanAuto(fanId: fanId)
+}
+else if CLIFanAutoOption.wasSet {
+    print("Usage: Must set fan number (-n) with --fan-auto (-a)")
 }
 else if CLIFanIdOption.wasSet != CLIFanSpeedOption.wasSet {
     print("Usage: Must set fan number (-n) AND fan speed (-s)")

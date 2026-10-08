@@ -245,6 +245,9 @@ public struct DataTypes {
                  DataType(type: FourCharCode(fromStaticString: "ui8 "), size: 1)
     public static let UInt32 =
                  DataType(type: FourCharCode(fromStaticString: "ui32"), size: 4)
+    /// IEEE-754 float, little-endian. Used for fan speed keys on T2 Macs
+    public static let FLT =
+                 DataType(type: FourCharCode(fromStaticString: "flt "), size: 4)
 }
 
 public struct SMCKey {
@@ -255,6 +258,45 @@ public struct SMCKey {
 public struct DataType: Equatable {
     let type: FourCharCode
     let size: UInt32
+}
+
+/// Create an SMCBytes tuple filled with zeros, with the first two bytes set
+/// to the given FPE2 value
+public func SMCBytesFromFPE2(_ value: FPE2) -> SMCBytes {
+    return (value.0, value.1, UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0))
+}
+
+/// Create an SMCBytes tuple with a single UInt8 value in the first byte
+public func SMCBytesFromUInt8(_ value: UInt8) -> SMCBytes {
+    return (value, UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0))
+}
+
+/// Create an SMCBytes tuple with a little-endian IEEE-754 float in the first 4 bytes
+public func SMCBytesFromFLT(_ value: Float) -> SMCBytes {
+    var bits = value.bitPattern
+    let b0 = UInt8(bits & 0xFF)
+    bits >>= 8
+    let b1 = UInt8(bits & 0xFF)
+    bits >>= 8
+    let b2 = UInt8(bits & 0xFF)
+    bits >>= 8
+    let b3 = UInt8(bits & 0xFF)
+    return (b0, b1, b2, b3,
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
+            UInt8(0), UInt8(0), UInt8(0), UInt8(0))
 }
 
 public func ==(lhs: DataType, rhs: DataType) -> Bool {
@@ -325,7 +367,7 @@ public struct SMCKit {
         let outputStruct = try callDriver(&inputStruct)
 
         return DataType(type: outputStruct.keyInfo.dataType,
-                        size: outputStruct.keyInfo.dataSize)
+                        size: UInt32(outputStruct.keyInfo.dataSize))
     }
 
     /// Get information about the key at index
@@ -346,7 +388,7 @@ public struct SMCKit {
         var inputStruct = SMCParamStruct()
 
         inputStruct.key = key.code
-        inputStruct.keyInfo.dataSize = UInt32(key.info.size)
+        inputStruct.keyInfo.dataSize = IOByteCount(key.info.size)
         inputStruct.data8 = SMCParamStruct.Selector.kSMCReadKey.rawValue
 
         let outputStruct = try callDriver(&inputStruct)
@@ -360,7 +402,7 @@ public struct SMCKit {
 
         inputStruct.key = key.code
         inputStruct.bytes = data
-        inputStruct.keyInfo.dataSize = UInt32(key.info.size)
+        inputStruct.keyInfo.dataSize = IOByteCount(key.info.size)
         inputStruct.data8 = SMCParamStruct.Selector.kSMCWriteKey.rawValue
 
         _ = try callDriver(&inputStruct)
@@ -629,6 +671,20 @@ public struct Fan {
 
 extension SMCKit {
 
+    /// Whether this Mac has an Apple Silicon (ARM) chip
+    public static var isAppleSilicon: Bool {
+        var value: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        let result = sysctlbyname("hw.optional.arm64", &value, &size, nil, 0)
+        return result == 0 && value == 1
+    }
+
+    /// Whether this Mac supports manual fan mode via the F{id}Md + F{id}Tg protocol
+    /// (Apple Silicon and T2-based Intel Macs). Older Intel Macs use F{id}Mn only.
+    public static var supportsManualFanMode: Bool {
+        return (try? isKeyFound(FourCharCode(fromStaticString: "F0Md"))) == true
+    }
+
     public static func allFans() throws -> [Fan] {
         let count = try fanCount()
         var fans = [Fan]()
@@ -641,7 +697,8 @@ extension SMCKit {
     }
 
     public static func fan(_ id: Int) throws -> Fan {
-        let name = try fanName(id)
+        // Fan name key (F{id}ID) is not available on all models
+        let name = (try? fanName(id)) ?? "Fan \(id)"
         let minSpeed = try fanMinSpeed(id)
         let maxSpeed = try fanMaxSpeed(id)
         return Fan(id: id, name: name, minSpeed: minSpeed, maxSpeed: maxSpeed)
@@ -683,28 +740,35 @@ extension SMCKit {
         return name.trimmingCharacters(in: characterSet)
     }
 
-    public static func fanCurrentSpeed(_ id: Int) throws -> Int {
-        let key = SMCKey(code: FourCharCode(fromString: "F\(id)Ac"),
-                                            info: DataTypes.FPE2)
+    /// Read a fan speed key. Older Intel Macs use FPE2, T2 Macs use flt.
+    fileprivate static func readFanSpeed(_ code: FourCharCode) throws -> Double {
+        let info = try keyInformation(code)
+        let data = try readData(SMCKey(code: code, info: info))
 
-        let data = try readData(key)
-        return Int(fromFPE2: (data.0, data.1))
+        if info.type == DataTypes.FLT.type {
+            let bits = UInt32(data.0)
+                     | UInt32(data.1) << 8
+                     | UInt32(data.2) << 16
+                     | UInt32(data.3) << 24
+            return Double(Float(bitPattern: bits))
+        }
+
+        return Double(Int(fromFPE2: (data.0, data.1)))
+    }
+
+    public static func fanCurrentSpeed(_ id: Int) throws -> Int {
+        let value = try readFanSpeed(FourCharCode(fromString: "F\(id)Ac"))
+        return Int(value.rounded())
     }
 
     public static func fanMinSpeed(_ id: Int) throws -> Int {
-        let key = SMCKey(code: FourCharCode(fromString: "F\(id)Mn"),
-                                            info: DataTypes.FPE2)
-
-        let data = try readData(key)
-        return Int(fromFPE2: (data.0, data.1))
+        let value = try readFanSpeed(FourCharCode(fromString: "F\(id)Mn"))
+        return Int(value.rounded())
     }
 
     public static func fanMaxSpeed(_ id: Int) throws -> Int {
-        let key = SMCKey(code: FourCharCode(fromString: "F\(id)Mx"),
-                                            info: DataTypes.FPE2)
-
-        let data = try readData(key)
-        return Int(fromFPE2: (data.0, data.1))
+        let value = try readFanSpeed(FourCharCode(fromString: "F\(id)Mx"))
+        return Int(value.rounded())
     }
 
     /// Requires root privileges. By minimum we mean that OS X can interject and
@@ -714,21 +778,94 @@ extension SMCKit {
     ///
     /// - Throws: Of note, `SMCKit.SMCError`'s `UnsafeFanSpeed` and `NotPrivileged`
     public static func fanSetMinSpeed(_ id: Int, speed: Int) throws {
+        if supportsManualFanMode {
+            try fanSetManualSpeed(id, speed: speed)
+        } else {
+            let maxSpeed = try fanMaxSpeed(id)
+            if speed <= 0 || speed > maxSpeed { throw SMCError.unsafeFanSpeed }
+
+            try writeFanSpeed(FourCharCode(fromString: "F\(id)Mn"),
+                              speed: Double(speed))
+        }
+    }
+
+    /// Write a fan speed key using the encoding the machine reports for it
+    /// (FPE2 on older Intel & Apple Silicon, flt on T2 Macs)
+    fileprivate static func writeFanSpeed(_ code: FourCharCode,
+                                          speed: Double) throws {
+        let info = try keyInformation(code)
+
+        let bytes: SMCBytes
+        if info.type == DataTypes.FLT.type {
+            bytes = SMCBytesFromFLT(Float(speed))
+        } else {
+            bytes = SMCBytesFromFPE2(Int(speed).toFPE2())
+        }
+
+        try writeData(SMCKey(code: code, info: info), data: bytes)
+    }
+
+    /// Set fan to manual mode with a target speed on Apple Silicon Macs.
+    ///
+    /// Apple Silicon uses a different fan control protocol than Intel:
+    /// - F{id}Md (or F{id}md on M5) = mode key: 0 = auto, 1 = manual
+    /// - F{id}Tg = target fan speed in FPE2 format
+    /// - Ftst = unlock key (required on M3/M4 Pro/Max, absent on M5)
+    ///
+    /// Requires root privileges.
+    ///
+    /// WARNING: You are playing with hardware here, BE CAREFUL.
+    ///
+    /// - Throws: Of note, `SMCKit.SMCError`'s `UnsafeFanSpeed` and `NotPrivileged`
+    public static func fanSetManualSpeed(_ id: Int, speed: Int) throws {
         let maxSpeed = try fanMaxSpeed(id)
         if speed <= 0 || speed > maxSpeed { throw SMCError.unsafeFanSpeed }
 
-        let data = speed.toFPE2()
-        let bytes: SMCBytes = (data.0, data.1, UInt8(0), UInt8(0), UInt8(0), UInt8(0),
-                               UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
-                               UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
-                               UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
-                               UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0), UInt8(0),
-                               UInt8(0), UInt8(0))
+        // On M3/M4 Pro/Max, write Ftst = 1 to unlock fan mode key.
+        // The key does not exist on M5 or Intel; ignore if not found.
+        let ftstCode = FourCharCode(fromStaticString: "Ftst")
+        if (try? isKeyFound(ftstCode)) == true {
+            let ftstKey = SMCKey(code: ftstCode, info: DataTypes.UInt8)
+            try writeData(ftstKey, data: SMCBytesFromUInt8(1))
+        }
 
-        let key = SMCKey(code: FourCharCode(fromString: "F\(id)Mn"),
-                         info: DataTypes.FPE2)
+        // Find the fan mode key. M1-M4 use F{id}Md, M5 uses F{id}md.
+        let modeKey = try fanModeKey(id)
 
-        try writeData(key, data: bytes)
+        // Set manual mode
+        try writeData(modeKey, data: SMCBytesFromUInt8(1))
+
+        // Write target speed
+        try writeFanSpeed(FourCharCode(fromString: "F\(id)Tg"),
+                          speed: Double(speed))
+    }
+
+    /// Return fan control to macOS (automatic mode) on Apple Silicon Macs.
+    /// On Intel Macs this is a no-op since setting min speed to the minimum
+    /// value achieves the same result.
+    ///
+    /// Requires root privileges.
+    public static func fanSetAuto(_ id: Int) throws {
+        let modeKey = try fanModeKey(id)
+
+        // Set auto mode (0 = auto)
+        try writeData(modeKey, data: SMCBytesFromUInt8(0))
+    }
+
+    /// Find the correct fan mode key for this machine.
+    /// M1-M4 use F{id}Md, M5 uses F{id}md.
+    fileprivate static func fanModeKey(_ id: Int) throws -> SMCKey {
+        let upperCode = FourCharCode(fromString: "F\(id)Md")
+        if (try? isKeyFound(upperCode)) == true {
+            return SMCKey(code: upperCode, info: DataTypes.UInt8)
+        }
+
+        let lowerCode = FourCharCode(fromString: "F\(id)md")
+        if (try? isKeyFound(lowerCode)) == true {
+            return SMCKey(code: lowerCode, info: DataTypes.UInt8)
+        }
+
+        throw SMCError.keyNotFound(code: "F\(id)Md")
     }
 }
 
