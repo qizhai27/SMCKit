@@ -142,17 +142,18 @@ Disc in ODD:      false
 
 | 选项 | 说明 |
 |------|------|
-| `-a`, `--fan-auto` | 将指定风扇（`-n`）恢复为 macOS 自动控制 |
+| `-A`, `--all-auto` | 将所有风扇恢复为 macOS 自动控制（需 root） |
+| `-a`, `--fan-auto` | 将指定风扇（`-n`）恢复为 macOS 自动控制（需 root） |
 | `-c`, `--color` | 对输出着色（按温度 / 转速告警等级） |
 | `-d`, `--display-keys` | 打印温度时同时显示对应的 SMC key（FourCC） |
 | `-f`, `--fan` | 显示风扇转速（RPM） |
 | `-h`, `--help` | 显示帮助 |
 | `-k <KEY>`, `--check-key <KEY>` | 检查某个 FourCC 在本机是否为有效 SMC key |
 | `-m`, `--misc` | 显示杂项信息（如光驱中是否有光盘） |
-| `-n <ID>`, `--fan-id <ID>` | 指定风扇编号（从 0 开始），设置转速时必填 |
+| `-n <ID>`, `--fan-id <ID>` | 指定风扇编号（从 0 开始），单独设置某个风扇时必填 |
 | `-p`, `--power` | 显示电源相关信息 |
 | `-s <RPM>`, `--fan-speed <RPM>` | 将指定风扇设置到目标转速（需 root，与 `-x` 互斥） |
-| `-x`, `--max` | 将指定风扇直接设为该风扇硬件最大转速（需 root，与 `-s` 互斥） |
+| `-x`, `--max` | 所有风扇全速运转，或用 `-n` 指定单个风扇（需 root，与 `-s` 互斥） |
 | `-t`, `--temperature` | 显示硬件映射已知的温度传感器 |
 | `-u`, `--unknown-temperature-sensors` | 显示硬件映射未知的温度传感器 |
 | `-v`, `--version` | 显示版本号 |
@@ -199,16 +200,28 @@ PALM_REST             (Ts0P)  29.0°C (Nominal)
 sudo smckit -n 0 -s 5000
 ```
 
-让 0 号风扇直接全速运转（自动读取该风扇最大转速，**需要 root**）：
+让 0 号风扇直接全速运转（**需要 root**）：
 
 ```sh
 sudo smckit -n 0 -x
+```
+
+让所有风扇全速运转（**需要 root**）：
+
+```sh
+sudo smckit -x
 ```
 
 恢复 0 号风扇为 macOS 自动控制（**需要 root**）：
 
 ```sh
 sudo smckit -a -n 0
+```
+
+恢复所有风扇为 macOS 自动控制（**需要 root**）：
+
+```sh
+sudo smckit -A
 ```
 
 检查某个 SMC key 是否存在：
@@ -231,10 +244,20 @@ Fan target speed set successfully (manual mode)
 To return to automatic control: smckit -a -n 0
 ```
 
+`-x` 全部风扇全速时的典型输出：
+
+```text
+[id 0] Fan 0  Max: 5297 RPM  Current: 1842 RPM
+[id 1] Fan 1  Max: 4905 RPM  Current: 1708 RPM
+
+To return to automatic control: smckit -A
+```
+
 #### 参数约束
 
 - `-s` 与 `-x` 互斥，同时使用会报错
-- `-s` / `-x` / `-a` 都必须配合 `-n <ID>` 使用
+- `-s` 必须配合 `-n <ID>` 使用；`-x` 可配合 `-n <ID>` 指定单个风扇，也可不带 `-n` 对所有风扇生效
+- `-a` 必须配合 `-n <ID>` 使用；`-A` 不需要 `-n`，对所有风扇生效
 - 目标转速必须 `> 0` 且不超过该风扇最大转速，否则报
   `Invalid fan speed. Must be <= max fan speed`
 - 写操作（设置转速 / 全速 / 恢复自动）必须以 root 身份运行，否则报
