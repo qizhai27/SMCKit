@@ -27,16 +27,12 @@ AppleSMC.kext（SMC 的私有内核驱动）通信，实现读取温度传感器
 - 自动适配不同机型的 SMC 数据编码（FPE2 / `flt`）与风扇控制协议
 
 
-### System Management Controller
+### 系统管理控制器（SMC）
 
-_"The System Management Controller (SMC) is an internal subsystem introduced by
-Apple Inc. with the introduction of their new Intel processor based machines
-in 2006. It takes over the functions of the SMU. The SMC manages thermal and
-power conditions to optimize the power and airflow while keeping audible noise
-to a minimum. Power consumption and temperature are monitored by the operating
-system, which communicates the necessary adjustments back to the SMC. The SMC
-makes the changes, slowing down or speeding up fans as necessary."_
--via Wikipedia
+> "系统管理控制器（SMC）是苹果公司在 2006 年推出基于 Intel 处理器的机型时引入的
+> 内部子系统，接管了 SMU 的功能。SMC 负责管理散热和电源条件，在保持噪音最小化的
+> 前提下优化功耗和气流。操作系统监控功耗和温度，并将必要的调整指令传达给 SMC，
+> 由 SMC 执行具体操作——按需加快或减慢风扇。" ——维基百科
 
 更多资料：
 
@@ -109,14 +105,22 @@ make uninstall
 ```sh
 $ smckit
 -- Temperature --
-CPU_0_DIE               70.0°C
-CPU_0_PROXIMITY         64.0°C
-...
+CPU_0_DIE               50.0°C
+CPU_0_PROXIMITY         46.0°C
+ENCLOSURE_BASE_0        30.0°C
+ENCLOSURE_BASE_1        29.0°C
+ENCLOSURE_BASE_2        30.0°C
+GPU_0_PROXIMITY         42.0°C
+HEATSINK_1              39.0°C
+HEATSINK_2              45.0°C
+MEM_SLOTS_PROXIMITY     43.0°C
+MISC_PROXIMITY          45.0°C
+PALM_REST               29.0°C
 -- Fan --
 [id 0] Fan 0
         Min:      1836 RPM
         Max:      5297 RPM
-        Current:  1834 RPM
+        Current:  1842 RPM
 [id 1] Fan 1
         Min:      1700 RPM
         Max:      4905 RPM
@@ -159,13 +163,34 @@ Disc in ODD:      false
 查看风扇状态：
 
 ```sh
-smckit -f
+$ smckit -f
+-- Fan --
+[id 0] Fan 0
+        Min:      1836 RPM
+        Max:      5297 RPM
+        Current:  1849 RPM
+[id 1] Fan 1
+        Min:      1700 RPM
+        Max:      4905 RPM
+        Current:  1707 RPM
 ```
 
 查看温度（带 SMC key 与告警等级、彩色输出）：
 
 ```sh
-smckit -t -d -w -c
+$ smckit -t -d -w -c
+-- Temperature --
+CPU_0_DIE             (TC0F)  50.0°C (Nominal)
+CPU_0_PROXIMITY       (TC0P)  46.0°C (Nominal)
+ENCLOSURE_BASE_0      (TB0T)  30.0°C (Nominal)
+ENCLOSURE_BASE_1      (TB1T)  29.0°C (Nominal)
+ENCLOSURE_BASE_2      (TB2T)  30.0°C (Nominal)
+GPU_0_PROXIMITY       (TG0P)  42.0°C (Nominal)
+HEATSINK_1            (Th1H)  39.0°C (Nominal)
+HEATSINK_2            (Th2H)  45.0°C (Nominal)
+MEM_SLOTS_PROXIMITY   (TM0P)  43.0°C (Nominal)
+MISC_PROXIMITY        (Tm0P)  45.0°C (Nominal)
+PALM_REST             (Ts0P)  29.0°C (Nominal)
 ```
 
 把 0 号风扇设置为 5000 RPM（**需要 root**）：
@@ -201,7 +226,7 @@ Fan target speed set successfully (manual mode)
         Min:             1836 RPM
         Max:             5297 RPM
         Target:          5000 RPM
-        Current:         1834 RPM
+        Current:         1842 RPM
 
 To return to automatic control: smckit -a -n 0
 ```
@@ -257,26 +282,20 @@ xattr -d com.apple.quarantine /path/to/smckit
 | 135 (0x87) | 数据尺寸 / 类型不匹配 | 读取时声明的 size/type 与 key 实际类型不符（本工具已自动处理 `fpe2`/`flt` 差异） |
 
 
-### Library Usage Notes
+### 库使用说明
 
-- The use of this library  will almost certainly not be allowed in the
-  Mac App Store as it is essentially using a private API
-- If you are creating a macOS command line tool, you cannot use SMCKit as a
-  library as Swift does not currently support static libraries. In such a
-  case, the `SMC.swift` file must simply be included in your project as another
-  source file. See
-  [SwiftInFlux/Runtime Dynamic Libraries](https://github.com/ksm/SwiftInFlux#runtime-dynamic-libraries)
-  for more information and both SMCKitTool &
-  [dshb](https://github.com/beltex/dshb) as examples of such a case.
-
-核心代码位于 [SMCKit/SMC.swift](SMCKit/SMC.swift)，CLI 入口位于
-[SMCKitTool/main.swift](SMCKitTool/main.swift)。
+- 如果你要创建 macOS 命令行工具，无法将 SMCKit 作为动态库引用（Swift 目前
+  不支持静态库）。这种情况下，直接将 [SMC.swift](SMCKit/SMC.swift) 作为源文件
+  加入你的项目即可。SMCKitTool 和
+  [dshb](https://github.com/beltex/dshb) 就是这种用法的示例。详见
+  [SwiftInFlux/Runtime Dynamic Libraries](https://github.com/ksm/SwiftInFlux#runtime-dynamic-libraries)。
+- 核心代码位于 [SMCKit/SMC.swift](SMCKit/SMC.swift)，CLI 入口位于
+  [SMCKitTool/main.swift](SMCKitTool/main.swift)。
 
 
-### References
+### 参考项目
 
-There are many projects that interface with the SMC for one purpose or another.
-Credit is most certainly due to them for the reference. Such projects as:
+以下项目为 SMC 交互提供了重要参考，在此致谢：
 
 - iStat Pro
 - [osx-cpu-temp](https://github.com/lavoiesl/osx-cpu-temp)
@@ -284,27 +303,25 @@ Credit is most certainly due to them for the reference. Such projects as:
 - [powermetrics(1)](https://developer.apple.com/library/mac/documentation/Darwin/Reference/ManPages/man1/powermetrics.1.html)
 - [smcFanControl](https://github.com/hholtmann/smcFanControl)
 
-Handy I/O Kit references:
+I/O Kit 相关书籍：
 
 - [iOS Hacker's Handbook](http://ca.wiley.com/WileyCDA/WileyTitle/productCd-1118204123.html)
-- [Mac OS X and iOS Internals: To the Apple's Core](http://www.wiley.com/WileyCDA/WileyTitle/productCd-1118057651.html)
+- [Mac OS X and iOS Internals: To the Apple's Core](http://www.wiley.com/WileyCDA/WileyTitle/productCd=1118057651.html)
 - [OS X and iOS Kernel Programming](http://www.apress.com/apple-mac/objective-c/9781430235361)
 
 
-### License
+### 许可证
 
-This project is under the **MIT License**.
+本项目基于 **MIT License**。
 
 
-### Fun
+### 趣闻
 
-While the SMC driver is closed source, the call structure and definition of
-certain structs needed to interact with it (see `SMCParamStruct`) happened to
-appear in the open source Apple **PowerManagement** project at around version
-211, and soon after disappeared. They can be seen in the
+SMC 驱动虽为闭源，但与之交互所需的调用结构和结构体定义（见 `SMCParamStruct`）
+曾短暂出现在苹果开源的 **PowerManagement** 项目中（约 version 211 版本），随后
+即被移除。相关代码可见于 `pmconfigd` 下的
 [PrivateLib.c](http://www.opensource.apple.com/source/PowerManagement/PowerManagement-211/pmconfigd/PrivateLib.c)
-file under `pmconfigd`. In the very same source file, the following snippet can be
-found:
+文件。在同一个源文件中，还能看到这样一段代码：
 
 ```c
 // And simply AppleSMC with kCFBooleanTrue to let them know time is changed.
@@ -314,5 +331,5 @@ IORegistryEntrySetCFProperty( _smc,
                     kCFBooleanTrue);
 ```
 
-Almost certainly a reference to Bob Dylan's
+这几乎可以确定是在致敬 Bob Dylan 的名曲
 <a href="https://en.wikipedia.org/wiki/The_Times_They_Are_a-Changin%27_(song)">The Times They Are a-Changin'</a> :)
