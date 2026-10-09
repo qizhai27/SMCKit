@@ -353,6 +353,3 @@ IORegistryEntrySetCFProperty( _smc,
                     CFSTR("TheTimesAreAChangin"),
                     kCFBooleanTrue);
 ```
-
-这几乎可以确定是在致敬 Bob Dylan 的名曲
-<a href="https://en.wikipedia.org/wiki/The_Times_They_Are_a-Changin%27_(song)">The Times They Are a-Changin'</a> :)
